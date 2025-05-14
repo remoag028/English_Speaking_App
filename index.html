@@ -1,30 +1,188 @@
-const startRecording = () => {
-  if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
-    alert("Speech Recognition not supported in this browser. Try Chrome on Android.");
-    return;
-  }
-  recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-  recognition.lang = "en-US";
-  recognition.interimResults = true;
-  recognition.maxAlternatives = 1;
-  recognition.continuous = true; // Enable continuous recording
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpeakMaster</title>
+  <meta name="description" content="A Toastmasters-style app to improve English speaking skills">
+  <meta name="theme-color" content="#1e40af">
+  <link rel="manifest" href="/manifest.json">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/react@17.0.2/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@17.0.2/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.16.4/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
 
-  let startTime = Date.now();
-  recognition.onresult = (event) => {
-    const current = event.results[event.results.length - 1][0].transcript;
-    setTranscript(current);
-  };
+    // Sample speech prompts
+    const prompts = [
+      "Describe your favorite book in 1-2 minutes.",
+      "Explain why you love your hobby in 1-2 minutes.",
+      "Tell a story about a memorable trip in 2-3 minutes."
+    ];
 
-  recognition.onend = () => {
-    // Restart recognition if still recording
-    if (isRecording) {
-      recognition.start();
-    } else {
-      const duration = (Date.now() - startTime) / 1000; // in seconds
-      analyzeSpeech(transcript, duration);
+    // Main App Component
+    function App() {
+      const [transcript, setTranscript] = useState("");
+      const [feedback, setFeedback] = useState(null);
+      const [isRecording, setIsRecording] = useState(false);
+      const [prompt, setPrompt] = useState("");
+      const [history, setHistory] = useState(JSON.parse(localStorage.getItem("speechHistory")) || []);
+      let recognition = null;
+
+      // Load random prompt on mount
+      useEffect(() => {
+        setPrompt(prompts[Math.floor(Math.random() * prompts.length)]);
+        registerServiceWorker();
+      }, []);
+
+      // Initialize speech recognition with continuous recording
+      const startRecording = () => {
+        if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+          alert("Speech Recognition not supported in this browser. Try Chrome on Android.");
+          return;
+        }
+        recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.lang = "en-US";
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        recognition.continuous = true; // Enable continuous recording
+
+        let startTime = Date.now();
+        recognition.onresult = (event) => {
+          const current = event.results[event.results.length - 1][0].transcript;
+          setTranscript(current);
+        };
+
+        recognition.onend = () => {
+          // Restart recognition if still recording
+          if (isRecording) {
+            recognition.start();
+          } else {
+            const duration = (Date.now() - startTime) / 1000; // in seconds
+            analyzeSpeech(transcript, duration);
+          }
+        };
+
+        recognition.start();
+        setIsRecording(true);
+      };
+
+      const stopRecording = () => {
+        if (recognition) {
+          recognition.stop();
+        }
+        setIsRecording(false);
+      };
+
+      // Basic AI feedback analysis
+      const analyzeSpeech = (text, duration) => {
+        const words = text.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+        const wordCount = words.length;
+        const fillers = ["um", "uh", "like", "you know"];
+        const fillerCount = words.filter(w => fillers.includes(w)).length;
+        const wpm = (wordCount / duration) * 60; // words per minute
+        const hasIntro = text.toLowerCase().includes("start") || text.toLowerCase().includes("begin");
+        const hasConclusion = text.toLowerCase().includes("end") || text.toLowerCase().includes("conclude");
+
+        const feedback = {
+          fillerCount,
+          fillerPercentage: ((fillerCount / wordCount) * 100).toFixed(2),
+          wpm: wpm.toFixed(2),
+          duration: duration.toFixed(2),
+          clarity: wordCount > 10 ? "Good" : "Too short",
+          structure: hasIntro && hasConclusion ? "Clear" : "Needs intro/conclusion",
+          tips: [
+            fillerCount > 3 ? "Try reducing filler words like 'um' or 'uh'." : "Great job minimizing filler words!",
+            wpm > 180 ? "Slow down a bit for clarity." : wpm < 120 ? "Try speaking a bit faster." : "Perfect pacing!"
+          ]
+        };
+
+        setFeedback(feedback);
+        const session = { date: new Date().toLocaleString(), feedback, transcript: text, prompt };
+        const updatedHistory = [...history, session];
+        setHistory(updatedHistory);
+        localStorage.setItem("speechHistory", JSON.stringify(updatedHistory));
+      };
+
+      // Register service worker for offline support
+      const registerServiceWorker = () => {
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.register("/sw.js").catch(err => console.error("Service Worker Error:", err));
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-blue-50 p-4">
+          <h1 className="text-3xl font-bold text-blue-800 mb-4">SpeakMaster</h1>
+          <div className="bg-white p-6 rounded-lg shadow-md mb-4">
+            <h2 className="text-xl font-semibold mb-2">Today’s Prompt</h2>
+            <p className="text-gray-700 mb-4">{prompt}</p>
+            <div className="flex space-x-4">
+              <button
+                onClick={startRecording}
+                disabled={isRecording}
+                className={`px-4 py-2 rounded ${isRecording ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700"} text-white`}
+              >
+                Start Recording
+              </button>
+              <button
+                onClick={stopRecording}
+                disabled={!isRecording}
+                className={`px-4 py-2 rounded ${!isRecording ? "bg-gray-400" : "bg-red-600 hover:bg-red-700"} text-white`}
+              >
+                Stop Recording
+              </button>
+            </div>
+            {transcript && (
+              <div className="mt-4">
+                <h3 className="text-lg font-semibold">Transcript</h3>
+                <p className="text-gray-600">{transcript}</p>
+              </div>
+            )}
+          </div>
+
+          {feedback && (
+            <div className="bg-white p-6 rounded-lg shadow-md mb-4">
+              <h2 className="text-xl font-semibold mb-2">AI Feedback</h2>
+              <p><strong>Filler Words:</strong> {feedback.fillerCount} ({feedback.fillerPercentage}%)</p>
+              <p><strong>Pacing:</strong> {feedback.wpm} words/min</p>
+              <p><strong>Duration:</strong> {feedback.duration} seconds</p>
+              <p><strong>Clarity:</strong> {feedback.clarity}</p>
+              <p><strong>Structure:</strong> {feedback.structure}</p>
+              <h3 className="text-lg font-semibold mt-4">Tips</h3>
+              <ul className="list-disc pl-5">
+                {feedback.tips.map((tip, i) => <li key={i}>{tip}</li>)}
+              </ul>
+            </div>
+          )}
+
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-2">Progress History</h2>
+            {history.length === 0 ? (
+              <p>No sessions yet. Start recording to see your progress!</p>
+            ) : (
+              <ul className="space-y-4">
+                {history.slice(-5).map((session, i) => (
+                  <li key={i} className="border-b pb-2">
+                    <p><strong>Date:</strong> {session.date}</p>
+                    <p><strong>Prompt:</strong> {session.prompt}</p>
+                    <p><strong>Filler Words:</strong> {session.feedback.fillerCount}</p>
+                    <p><strong>Pacing:</strong> {session.feedback.wpm} words/min</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      );
     }
-  };
 
-  recognition.start();
-  setIsRecording(true);
-};
+    // Render the app
+    ReactDOM.render(<App />, document.getElementById("root"));
+  </script>
+</body>
+</html>
